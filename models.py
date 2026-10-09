@@ -16,11 +16,16 @@ class User(Base):
     document_status = Column(String, default="not submitted")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+
 class Listing(Base):
     __tablename__ = "listings"
 
     id = Column(Integer, primary_key=True, index=True)
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+    title = Column(String, nullable=False)
+    location_name = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
 
     location_lat = Column(Float, nullable=False)
     location_lng = Column(Float, nullable=False)
@@ -31,6 +36,7 @@ class Listing(Base):
     sunlight = Column(String, nullable=True)
     soil_info = Column(String, nullable=True)
 
+    # fixed / negotiable: KSh per month. harvest_share: percentage of harvest.
     price_type = Column(String, nullable=False)
     price_value = Column(Float, nullable=False)
 
