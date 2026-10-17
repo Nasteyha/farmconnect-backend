@@ -19,9 +19,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-ADMIN_USERNAME = "admin"
-ADMIN_PASSWORD = "admin123"
-
 
 def get_db():
     db = SessionLocal()
@@ -168,13 +165,6 @@ def delete_listing(listing_id: int, db: Session = Depends(get_db)):
 
 
 # ---------- ADMIN ENDPOINTS ----------
-
-@app.post("/admin/login")
-def admin_login(credentials: schemas.AdminLogin):
-    if credentials.username != ADMIN_USERNAME or credentials.password != ADMIN_PASSWORD:
-        raise HTTPException(status_code=401, detail="Invalid admin credentials")
-    return {"message": "Login successful"}
-
 
 @app.get("/admin/stats")
 def admin_stats(db: Session = Depends(get_db)):

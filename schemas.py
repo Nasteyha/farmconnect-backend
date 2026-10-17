@@ -96,10 +96,6 @@ class ListingResponse(BaseModel):
     crop_suggestions: Optional[str]
 
 
-class AdminLogin(BaseModel):
-    username: str
-    password: str
-
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
