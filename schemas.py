@@ -1,6 +1,6 @@
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 from typing import Literal, Optional
-from datetime import date
+from datetime import date, datetime
 
 
 class UserCreate(BaseModel):
@@ -103,6 +103,48 @@ class ListingResponse(BaseModel):
     status: str
     crop_suggestions: Optional[str]
 
+
+class ListingDetailResponse(ListingResponse):
+    owner_name: str
+    owner_document_status: str
+
+
+class BookingCreate(BaseModel):
+    listing_id: int
+    start_date: date
+    end_date: date
+    message: Optional[str] = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def end_after_start(self):
+        if self.end_date <= self.start_date:
+            raise ValueError("end_date must be after start_date")
+        return self
+
+
+class BookingDecision(BaseModel):
+    decision: Literal["accepted", "declined"]
+
+
+class BookingResponse(BaseModel):
+    id: int
+    listing_id: int
+    listing_title: str
+    grower_id: int
+    grower_name: str
+    start_date: date
+    end_date: date
+    message: Optional[str]
+    status: str
+
+class NotificationResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    message: str
+    link: Optional[str]
+    is_read: bool
+    created_at: datetime
 
 class LoginRequest(BaseModel):
     email: EmailStr

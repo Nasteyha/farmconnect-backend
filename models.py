@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Float, Date, Text
 from sqlalchemy.sql import func
 from database import Base
-
+from sqlalchemy.orm import relationship
 
 class User(Base):
     __tablename__ = "users"
@@ -48,4 +48,31 @@ class Listing(Base):
     status = Column(String, default="available")
     crop_suggestions = Column(Text, nullable=True)
 
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class Booking(Base):
+    __tablename__ = "bookings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    listing_id = Column(Integer, ForeignKey("listings.id"), nullable=False)
+    grower_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=False)
+    message = Column(Text, nullable=True)
+
+    status = Column(String, default="pending")   # pending / accepted / declined
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    listing = relationship("Listing")
+    grower = relationship("User")
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)  # who should see it
+    message = Column(String, nullable=False)
+    link = Column(String, nullable=True)        # where "View" should go, e.g. "/requests"
+    is_read = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

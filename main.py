@@ -216,13 +216,14 @@ def delete_user(
     db_user = db.query(models.User).filter(models.User.id == user_id).first()
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
+    db.query(models.Notification).filter(models.Notification.user_id == user_id).delete()
     db.delete(db_user)
     try:
         db.commit()
     except IntegrityError:
         # The user still owns listings, which point back to them
         db.rollback()
-        raise HTTPException(status_code=400, detail="Delete this user's listings first")
+        raise HTTPException(status_code=400, detail="This user still has listings or booking requests")
     return {"message": "User deleted"}
 
 
@@ -259,13 +260,18 @@ def get_listings(
     return query.order_by(models.Listing.id.desc()).all()
 
 
-@app.get("/listings/{listing_id}", response_model=schemas.ListingResponse)
+@app.get("/listings/{listing_id}", response_model=schemas.ListingDetailResponse)
 def get_listing(listing_id: int, db: Session = Depends(get_db)):
     db_listing = db.query(models.Listing).filter(models.Listing.id == listing_id).first()
     if not db_listing:
         raise HTTPException(status_code=404, detail="Listing not found")
-    return db_listing
-
+    owner = db.query(models.User).filter(models.User.id == db_listing.owner_id).first()
+    listing_data = schemas.ListingResponse.model_validate(db_listing).model_dump()
+    return schemas.ListingDetailResponse(
+        **listing_data,
+        owner_name=owner.name,
+        owner_document_status=owner.document_status,
+    )
 
 def get_own_available_listing(listing_id: int, db: Session, current_user: models.User):
     """Find a listing and make sure the logged-in user owns it and it can still be changed."""
@@ -304,10 +310,154 @@ def delete_listing(
     current_user: models.User = Depends(get_current_user),
 ):
     db_listing = get_own_available_listing(listing_id, db, current_user)
+    db.query(models.Booking).filter(models.Booking.listing_id == listing_id).delete()
+    db.delete(db_listing)
     db.delete(db_listing)
     db.commit()
     return {"message": "Listing deleted"}
 
+# ---------- NOTIFICATIONS ----------
+
+def notify(db: Session, user_id: int, message: str, link: str = "/requests"):
+    """Queue a notification for one user. No commit here: it is saved together with
+    whatever action caused it, so either both happen or neither does."""
+    db.add(models.Notification(user_id=user_id, message=message, link=link))
+
+
+@app.get("/notifications", response_model=list[schemas.NotificationResponse])
+def get_my_notifications(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    return (
+        db.query(models.Notification)
+        .filter(models.Notification.user_id == current_user.id)
+        .order_by(models.Notification.id.desc())
+        .limit(20)
+        .all()
+    )
+
+
+@app.put("/notifications/read")
+def mark_notifications_read(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    db.query(models.Notification).filter(
+        models.Notification.user_id == current_user.id,
+        models.Notification.is_read == False,  # noqa: E712
+    ).update({"is_read": True})
+    db.commit()
+    return {"message": "Marked as read"}
+
+# ---------- BOOKING ENDPOINTS ----------
+
+def booking_out(booking: models.Booking) -> schemas.BookingResponse:
+    return schemas.BookingResponse(
+        id=booking.id,
+        listing_id=booking.listing_id,
+        listing_title=booking.listing.title,
+        grower_id=booking.grower_id,
+        grower_name=booking.grower.name,
+        start_date=booking.start_date,
+        end_date=booking.end_date,
+        message=booking.message,
+        status=booking.status,
+    )
+
+
+@app.post("/bookings", response_model=schemas.BookingResponse)
+def create_booking(
+    data: schemas.BookingCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    if current_user.role != "grower":
+        raise HTTPException(status_code=403, detail="Only growers can request a plot")
+
+    listing = db.query(models.Listing).filter(models.Listing.id == data.listing_id).first()
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    if listing.status != "available":
+        raise HTTPException(status_code=400, detail="This plot is not available")
+    if data.start_date < listing.availability_start or data.end_date > listing.availability_end:
+        raise HTTPException(status_code=400, detail="Requested dates are outside the availability window")
+
+    already = db.query(models.Booking).filter(
+        models.Booking.listing_id == listing.id,
+        models.Booking.grower_id == current_user.id,
+        models.Booking.status == "pending",
+    ).first()
+    if already:
+        raise HTTPException(status_code=400, detail="You already have a pending request for this plot")
+
+    booking = models.Booking(
+        listing_id=listing.id,
+        grower_id=current_user.id,   # from the token, never from the request body
+        start_date=data.start_date,
+        end_date=data.end_date,
+        message=data.message,
+    )
+    db.add(booking)
+    notify(db, listing.owner_id, f"{current_user.name} requested {listing.title}")
+    db.commit()
+    db.refresh(booking)
+    return booking_out(booking)
+
+@app.get("/bookings", response_model=list[schemas.BookingResponse])
+def get_my_bookings(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    query = db.query(models.Booking)
+    if current_user.role == "grower":
+        query = query.filter(models.Booking.grower_id == current_user.id)
+    elif current_user.role == "landowner":
+        query = query.join(models.Listing).filter(models.Listing.owner_id == current_user.id)
+    else:
+        raise HTTPException(status_code=403, detail="Admins have no bookings")
+    return [booking_out(b) for b in query.order_by(models.Booking.id.desc()).all()]
+
+
+@app.put("/bookings/{booking_id}/decision", response_model=schemas.BookingResponse)
+def decide_booking(
+    booking_id: int,
+    body: schemas.BookingDecision,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    booking = db.query(models.Booking).filter(models.Booking.id == booking_id).first()
+    if not booking:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    listing = booking.listing
+    if listing.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="This is not your listing")
+    if booking.status != "pending":
+        raise HTTPException(status_code=400, detail="This request has already been answered")
+
+    if body.decision == "accepted":
+        if listing.status != "available":
+            raise HTTPException(status_code=400, detail="This plot is no longer available")
+        booking.status = "accepted"
+        listing.status = "reserved"
+        notify(db, booking.grower_id, f"Your request for {listing.title} was accepted")
+        # the plot is taken, so any other waiting requests for it cannot be granted
+        others = db.query(models.Booking).filter(
+            models.Booking.listing_id == listing.id,
+            models.Booking.id != booking.id,
+            models.Booking.status == "pending",
+        ).all()
+        for other in others:
+            other.status = "declined"
+            notify(db, other.grower_id, f"Your request for {listing.title} was declined: the plot went to another grower")
+    else:
+        booking.status = "declined"
+        notify(db, booking.grower_id, f"Your request for {listing.title} was declined")
+
+    db.commit()
+    db.refresh(booking)
+    return booking_out(booking)
 
 # ---------- ADMIN ENDPOINTS ----------
 

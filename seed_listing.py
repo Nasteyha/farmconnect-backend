@@ -197,7 +197,7 @@ def main():
         db.add(models.Listing(
             **checked.model_dump(),
             owner_id=owner.id,
-            status="booked" if item["title"] in BOOKED_TITLES else "available",
+            status="reserved" if item["title"] in BOOKED_TITLES else "available",
         ))
         created += 1
 
