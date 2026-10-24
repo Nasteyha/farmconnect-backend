@@ -14,6 +14,8 @@ class User(Base):
     role = Column(String, nullable=False)
     id_verified = Column(Boolean, default=False)
     document_status = Column(String, default="not submitted")
+    document_type = Column(String, nullable=True)   # "national_id" or "land_document"
+    document_path = Column(String, nullable=True)   # file name inside the uploads/ folder
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 

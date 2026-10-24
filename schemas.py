@@ -28,11 +28,19 @@ class UserResponse(BaseModel):
     role: str
     id_verified: bool
     document_status: str
+    document_type: Optional[str] = None
+
+
+class DocumentReview(BaseModel):
+    decision: Literal["approved", "rejected"]
+
+
+class LoginResponse(UserResponse):
+    access_token: str
+    token_type: str = "bearer"
 
 
 class ListingCreate(BaseModel):
-    owner_id: int
-
     title: str = Field(min_length=3, max_length=120)
     location_name: str = Field(min_length=2, max_length=120)
     description: Optional[str] = None
