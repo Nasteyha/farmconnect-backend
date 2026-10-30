@@ -8,6 +8,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from fastapi.middleware.cors import CORSMiddleware
+from crop_ai import generate_crop_suggestions, CropSuggestionError
 
 from database import SessionLocal, engine
 import models
@@ -243,6 +244,13 @@ def create_listing(
     db.add(db_listing)
     db.commit()
     db.refresh(db_listing)
+
+    try:
+        db_listing.crop_suggestions = generate_crop_suggestions(db_listing)
+        db.commit()
+        db.refresh(db_listing)
+    except CropSuggestionError:
+        pass
     return db_listing
 
 
@@ -315,6 +323,40 @@ def delete_listing(
     db.delete(db_listing)
     db.commit()
     return {"message": "Listing deleted"}
+
+@app.post("/listings/{listing_id}/crop-assistant", response_model=schemas.CropAnswer)
+def ask_crop_assistant(
+    listing_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    db_listing = db.query(models.Listing).filter(models.Listing.id == listing_id).first()
+    if not db_listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    try:
+        return {"suggestions": generate_crop_suggestions(db_listing)}
+    except CropSuggestionError as error:
+        raise HTTPException(status_code=503, detail=str(error))
+    
+
+@app.post("/listings/{listing_id}/crop-suggestions", response_model=schemas.ListingResponse)
+def refresh_crop_suggestions(
+    listing_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    db_listing = db.query(models.Listing).filter(models.Listing.id == listing_id).first()
+    if not db_listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    if db_listing.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="This is not your listing")
+    try:
+        db_listing.crop_suggestions = generate_crop_suggestions(db_listing)
+    except CropSuggestionError as error:
+        raise HTTPException(status_code=503, detail=str(error))
+    db.commit()
+    db.refresh(db_listing)
+    return db_listing
 
 # ---------- NOTIFICATIONS ----------
 

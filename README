@@ -11,6 +11,7 @@ urban landowners with idle plots to growers who have no land. SWE 4900 final-ter
 - Listings with create, edit, delete and validation
 - Booking requests with accept or decline, and automatic decline of the other pending requests
 - Notifications for booking events
+- AI-assisted crop suggestions for each listing (Open-Meteo weather + a free Groq language model)
 - Admin statistics and user management
 
 ## Requirements
@@ -34,6 +35,7 @@ urban landowners with idle plots to growers who have no land. SWE 4900 final-ter
    ```
    DATABASE_URL=postgresql+psycopg2://postgres:YOUR_PASSWORD@localhost/farmconnect
    SECRET_KEY=a-long-random-string
+   GROQ_API_KEY=your-key-from-console.groq.com
    ```
 
    To make a secret key: `python -c "import secrets; print(secrets.token_hex(32))"`
@@ -60,6 +62,15 @@ urban landowners with idle plots to growers who have no land. SWE 4900 final-ter
    ```
 
    Run `seed_users.py` first, because the sample listings belong to the demo landowners it creates.
+
+6. Optional: add AI crop suggestions to the existing listings (needs `GROQ_API_KEY` and internet):
+
+   ```
+   python generate_suggestions.py
+   ```
+
+   New listings get suggestions automatically. If the weather or AI service is down, the listing is
+   still saved and the page says no suggestions are available yet.
 
 ## Run
 

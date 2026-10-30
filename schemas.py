@@ -146,6 +146,9 @@ class NotificationResponse(BaseModel):
     is_read: bool
     created_at: datetime
 
+class CropAnswer(BaseModel):
+    suggestions: str
+
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
